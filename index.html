@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Coin Flip Streak Probability Visualizer</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+  .focus-ring:focus { outline: 3px solid #eab308; outline-offset: 2px; }
+  #sequence-box { font-family: monospace; font-size: 12px; word-break: break-all; max-height: 80px; overflow-y: auto; }
+  .H { color: #4ade80; }
+  .T { color: #f87171; }
+  .streak-H { color: #4ade80; background: rgba(74,222,128,0.15); border-radius:2px; }
+  .streak-T { color: #f87171; background: rgba(248,113,113,0.15); border-radius:2px; }
+</style>
+</head>
+<body class="bg-gray-950 text-white min-h-screen">
+<div class="max-w-3xl mx-auto px-4 py-4">
+  <h1 class="text-2xl font-bold text-center text-yellow-400 mb-1">Coin Flip Streak Visualizer</h1>
+  <p class="text-center text-gray-400 text-sm mb-4">Simulate flips · Find longest streak · Monte Carlo histogram</p>
+
+  <!-- Controls -->
+  <div class="flex flex-wrap gap-4 items-center justify-center mb-4 bg-gray-800 rounded-2xl p-4">
+    <div class="flex items-center gap-2">
+      <label for="n-slider" class="text-sm text-gray-300 whitespace-nowrap">Flips: <span id="n-val">100</span></label>
+      <input type="range" id="n-slider" min="10" max="10000" value="100" step="10" class="w-32 accent-yellow-400 focus-ring" aria-label="Number of flips">
+    </div>
+    <div class="flex items-center gap-2">
+      <label for="fps-slider" class="text-sm text-gray-300 whitespace-nowrap">Anim FPS: <span id="fps-val">20</span></label>
+      <input type="range" id="fps-slider" min="5" max="60" value="20" step="5" class="w-24 accent-yellow-400 focus-ring" aria-label="Animation FPS">
+    </div>
+    <button id="btn-simulate" class="focus-ring bg-yellow-500 hover:bg-yellow-400 text-gray-900 font-bold px-5 py-2 rounded-xl transition">🎲 Simulate</button>
+    <button id="btn-animate" class="focus-ring bg-purple-700 hover:bg-purple-600 text-white font-bold px-4 py-2 rounded-xl transition">▶ Animate</button>
+    <button id="btn-stop" class="focus-ring bg-gray-600 hover:bg-gray-500 text-white font-bold px-4 py-2 rounded-xl transition">■ Stop</button>
+    <button id="btn-monte" class="focus-ring bg-blue-700 hover:bg-blue-600 text-white font-bold px-4 py-2 rounded-xl transition">📊 Monte Carlo</button>
+  </div>
+
+  <!-- Stats row -->
+  <div class="grid grid-cols-4 gap-3 mb-4 text-center">
+    <div class="bg-gray-800 rounded-xl p-3">
+      <div class="text-xl font-black text-yellow-400" id="stat-longest">—</div>
+      <div class="text-xs text-gray-400">Longest Streak</div>
+    </div>
+    <div class="bg-gray-800 rounded-xl p-3">
+      <div class="text-xl font-black text-green-400" id="stat-h">—</div>
+      <div class="text-xs text-gray-400">Heads</div>
+    </div>
+    <div class="bg-gray-800 rounded-xl p-3">
+      <div class="text-xl font-black text-red-400" id="stat-t">—</div>
+      <div class="text-xs text-gray-400">Tails</div>
+    </div>
+    <div class="bg-gray-800 rounded-xl p-3">
+      <div class="text-xl font-black text-purple-400" id="stat-theory">—</div>
+      <div class="text-xs text-gray-400">Expected</div>
+    </div>
+  </div>
+
+  <!-- Live coin + sequence -->
+  <div class="bg-gray-800 rounded-2xl p-4 mb-4">
+    <div class="flex items-center gap-4 mb-2">
+      <div id="live-coin" class="w-14 h-14 rounded-full flex items-center justify-center text-2xl font-black border-4 border-yellow-400 bg-gray-700 transition-all">—</div>
+      <div class="flex-1">
+        <div class="text-xs text-gray-400 mb-1">Live streak: <span id="live-streak" class="text-yellow-400 font-bold">0</span></div>
+        <div class="text-xs text-gray-400">Flip #<span id="live-count">0</span> / <span id="live-total">100</span></div>
+      </div>
+    </div>
+    <div id="sequence-box" class="bg-gray-900 rounded-xl p-2 text-xs" aria-live="polite" aria-label="Coin flip sequence"></div>
+  </div>
+
+  <!-- Charts -->
+  <div class="grid md:grid-cols-1 gap-4 mb-4">
+    <div class="bg-gray-800 rounded-2xl p-4">
+      <h2 class="text-sm font-semibold text-gray-300 mb-2 uppercase tracking-widest">Monte Carlo Distribution of Longest Streaks (1000 sims)</h2>
+      <canvas id="hist-chart" aria-label="Histogram of longest streak distribution"></canvas>
+    </div>
+  </div>
+
+  <!-- Monte Carlo stats -->
+  <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center" id="mc-stats">
+    <div class="bg-gray-800 rounded-xl p-3">
+      <div class="text-lg font-black text-blue-400" id="mc-mean">—</div>
+      <div class="text-xs text-gray-400">MC Mean</div>
+    </div>
+    <div class="bg-gray-800 rounded-xl p-3">
+      <div class="text-lg font-black text-cyan-400" id="mc-median">—</div>
+      <div class="text-xs text-gray-400">MC Median</div>
+    </div>
+    <div class="bg-gray-800 rounded-xl p-3">
+      <div class="text-lg font-black text-pink-400" id="mc-max">—</div>
+      <div class="text-xs text-gray-400">MC Max</div>
+    </div>
+    <div class="bg-gray-800 rounded-xl p-3">
+      <div class="text-lg font-black text-yellow-400" id="mc-theory-2">—</div>
+      <div class="text-xs text-gray-400">Theory (log₂N)</div>
+    </div>
+  </div>
+</div>
+
+<script>
+let histChart = null;
+let animReq = null, animRunning = false;
+
+function flip() { return Math.random() < 0.5 ? 'H' : 'T'; }
+
+function longestStreak(flips) {
+  let max=0, cur=0, last='';
+  for (const f of flips) {
+    cur = (f===last) ? cur+1 : 1;
+    last=f;
+    if (cur>max) max=cur;
+  }
+  return max;
+}
+
+function theoretical(n) { return Math.log2(n); }
+
+function simulate(n) {
+  return Array.from({length:n}, flip);
+}
+
+function renderSequence(flips, streakFlips=new Set()) {
+  const box = document.getElementById('sequence-box');
+  if (flips.length > 2000) {
+    box.textContent = `(${flips.length} flips — sequence display limited to 2000 chars)`;
+    return;
+  }
+  // Find longest streak positions
+  let maxS=0, cur=0, last='', start=0, bestStart=0, bestEnd=0;
+  for (let i=0;i<flips.length;i++) {
+    if (flips[i]===last) cur++; else { cur=1; start=i; }
+    last=flips[i];
+    if (cur>maxS) { maxS=cur; bestStart=start; bestEnd=i; }
+  }
+  let html='';
+  for (let i=0;i<flips.length;i++) {
+    const cls = (i>=bestStart&&i<=bestEnd) ? 'streak-'+flips[i] : flips[i];
+    html += `<span class="${cls}">${flips[i]}</span>`;
+  }
+  box.innerHTML = html;
+}
+
+function runSimulate() {
+  stopAnim();
+  const n = parseInt(document.getElementById('n-slider').value);
+  const flips = simulate(n);
+  const ls = longestStreak(flips);
+  const h = flips.filter(f=>f==='H').length;
+
+  document.getElementById('stat-longest').textContent = ls;
+  document.getElementById('stat-h').textContent = h;
+  document.getElementById('stat-t').textContent = n-h;
+  document.getElementById('stat-theory').textContent = theoretical(n).toFixed(1);
+  document.getElementById('live-count').textContent = n;
+  document.getElementById('live-total').textContent = n;
+  document.getElementById('live-streak').textContent = ls;
+  document.getElementById('live-coin').textContent = flips[flips.length-1]==='H' ? '𝐇' : '𝐓';
+  document.getElementById('live-coin').style.color = flips[flips.length-1]==='H'?'#4ade80':'#f87171';
+  renderSequence(flips);
+}
+
+function runAnimate() {
+  stopAnim();
+  const n = parseInt(document.getElementById('n-slider').value);
+  const fps = parseInt(document.getElementById('fps-slider').value);
+  const interval = 1000/fps;
+  const flips = simulate(n);
+  document.getElementById('live-total').textContent = n;
+  let i = 0, cur=0, last='', maxS=0;
+  let seqArr = [];
+  let lastTime = 0;
+
+  function step(ts) {
+    if (!animRunning) return;
+    if (ts - lastTime < interval) { animReq = requestAnimationFrame(step); return; }
+    lastTime = ts;
+    const f = flips[i];
+    seqArr.push(f);
+    if (f===last) cur++; else { cur=1; }
+    last=f;
+    if (cur>maxS) maxS=cur;
+    document.getElementById('live-coin').textContent = f==='H'?'𝐇':'𝐓';
+    document.getElementById('live-coin').style.color = f==='H'?'#4ade80':'#f87171';
+    document.getElementById('live-streak').textContent = cur + ' ' + (f==='H'?'H':'T');
+    document.getElementById('live-count').textContent = i+1;
+    if (seqArr.length <= 2000) renderSequence(seqArr);
+    i++;
+    if (i<n) { animReq = requestAnimationFrame(step); }
+    else {
+      animRunning=false;
+      document.getElementById('stat-longest').textContent = maxS;
+      document.getElementById('stat-h').textContent = seqArr.filter(f=>f==='H').length;
+      document.getElementById('stat-t').textContent = seqArr.filter(f=>f==='T').length;
+      document.getElementById('stat-theory').textContent = theoretical(n).toFixed(1);
+    }
+  }
+  animRunning=true;
+  animReq = requestAnimationFrame(step);
+}
+
+function stopAnim() {
+  animRunning=false;
+  if (animReq) cancelAnimationFrame(animReq);
+}
+
+function runMonteCarlo() {
+  const n = parseInt(document.getElementById('n-slider').value);
+  const sims = 1000;
+  const results = Array.from({length:sims}, () => longestStreak(simulate(n)));
+  results.sort((a,b)=>a-b);
+
+  const mean = results.reduce((s,v)=>s+v,0)/sims;
+  const median = results[Math.floor(sims/2)];
+  const max = results[sims-1];
+  const theory = theoretical(n);
+
+  document.getElementById('mc-mean').textContent = mean.toFixed(1);
+  document.getElementById('mc-median').textContent = median;
+  document.getElementById('mc-max').textContent = max;
+  document.getElementById('mc-theory-2').textContent = theory.toFixed(1);
+
+  // Histogram bins
+  const minV = results[0], maxV = max;
+  const range = maxV - minV;
+  const bins = Math.min(20, range+1);
+  const binSize = Math.max(1, Math.ceil(range/bins));
+  const freq = {};
+  results.forEach(v => {
+    const b = Math.floor((v-minV)/binSize)*binSize+minV;
+    freq[b] = (freq[b]||0)+1;
+  });
+  const labels = Object.keys(freq).map(Number).sort((a,b)=>a-b);
+  const data = labels.map(l => freq[l]);
+
+  const theoryBin = Math.floor((Math.round(theory)-minV)/binSize)*binSize+minV;
+
+  if (histChart) {
+    histChart.data.labels = labels;
+    histChart.data.datasets[0].data = data;
+    histChart.data.datasets[1].data = labels.map(l => l===theoryBin||Math.abs(l-theory)<binSize?sims*0.15:0);
+    histChart.update();
+  } else {
+    histChart = new Chart(document.getElementById('hist-chart'), {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [
+          {label:'Observed', data, backgroundColor:'rgba(99,102,241,0.7)', borderColor:'#6366f1', borderWidth:1, borderRadius:4},
+          {label:'Theory ≈ log₂N', data:labels.map(l=>Math.abs(l-theory)<binSize*0.6?sims*0.12:0), backgroundColor:'rgba(234,179,8,0.7)', borderColor:'#eab308', borderWidth:2, type:'bar'}
+        ]
+      },
+      options: {
+        responsive:true,
+        plugins:{legend:{labels:{color:'#d1d5db',boxWidth:12}}},
+        scales:{
+          x:{title:{display:true,text:'Longest Streak Length',color:'#9ca3af'},ticks:{color:'#9ca3af'},grid:{color:'rgba(255,255,255,0.05)'}},
+          y:{title:{display:true,text:'Count (out of 1000)',color:'#9ca3af'},ticks:{color:'#9ca3af'},grid:{color:'rgba(255,255,255,0.05)'}}
+        }
+      }
+    });
+  }
+}
+
+document.getElementById('n-slider').addEventListener('input', function() {
+  document.getElementById('n-val').textContent = parseInt(this.value).toLocaleString();
+  document.getElementById('live-total').textContent = this.value;
+});
+document.getElementById('fps-slider').addEventListener('input', function() {
+  document.getElementById('fps-val').textContent = this.value;
+});
+
+document.getElementById('btn-simulate').addEventListener('click', runSimulate);
+document.getElementById('btn-animate').addEventListener('click', runAnimate);
+document.getElementById('btn-stop').addEventListener('click', stopAnim);
+document.getElementById('btn-monte').addEventListener('click', runMonteCarlo);
+
+// Init
+runSimulate();
+runMonteCarlo();
+</script>
+</body>
+</html>
